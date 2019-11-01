@@ -1,0 +1,176 @@
+---
+title: "20191030_unsupervized_learning_mini-project_PCA"
+author: "Patrick Bruck"
+date: "10/30/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r}
+# Save your input data file to a new 'data' directory
+fna.data <- "data/WisconsinCancer.csv"
+
+# Complete the following code to input the data and store as wisc.df
+wisc.df <- read.csv("WisconsinCancer.csv")
+```
+
+Here we examine data from `r nrow(wisc.df)` patients
+(when the above line knits, it will print the # rows in that bit of code)
+
+```{r}
+x <- table(wisc.df$diagnosis)
+x
+```
+
+In this data set, we have `r x[1]` cancer and `r x[2]` non-cancer diagnoses.
+#could also write this as `r x["M"]` and `r x["B"]`
+
+
+In our analysis, we want to get rid of the ID column (obvious) as well as the diagnosis column (since that's basically the answer we're using to check our unsupervized model by). We're also getting rid of this random last column called "X" that is empty and was probably accidentally created.
+```{r}
+wisc.data <- as.matrix(wisc.df [,3:32])
+```
+
+
+
+Find how many features end with "_mean"
+```{r}
+length(grep("_mean", colnames(wisc.df)))
+```
+
+
+
+## Principal Component Analysis
+
+
+Do we need to scale?
+Find Std dev of each column. If they're similar, we're okay. If diff, we need to scale.
+```{r}
+round(apply(wisc.data, 2, sd), 3)
+# with apply(), 1 refers to rows and 2 refers to columns
+```
+For sure they're all over the place, so we need to use `SCALE=TRUE`
+
+```{r}
+# Perform PCA on wisc.data by completing the following code
+wisc.pr <- prcomp(wisc.data, scale=TRUE)
+summary(wisc.pr)
+```
+
+Plot PC1 vs PC2, color by M/B (Malignant vs Benign)
+```{r}
+colors <- c("red", "blue")
+plot(wisc.pr$x[,1:2], col=wisc.df$diagnosis)
+```
+
+
+```{r}
+x <- summary(wisc.pr)
+x$importance[, "PC1"]
+```
+
+The first PC captures `r x$importance[2, "PC1"] * 100` percent of the variation. (= 44.27%)
+
+Question: how many PCs are required to describe at least 70% of the data?
+```{r}
+x$importance[3,] > 0.7
+which(x$importance[3,] > 0.7)
+which(x$importance[3,] > 0.7)[1]
+```
+
+
+# Calculate variance of each component
+```{r}
+pr.var <- wisc.pr$sdev^2
+vi(pr.var)
+```
+
+
+Now divide the variability (stdev^2) of each PC by the amount of variance it explains
+```{r}
+# Variance explained by each principal component: pve
+pve <- pr.var / x$importance[2,]
+#this step confuses Spencer & I, because skipping it gives the correct graph in the workbook.
+
+# Plot variance explained for each principal component
+#plot(pve, xlab = "Principal Component", 
+    # ylab = "Proportion of Variance Explained", 
+    # ylim = c(0, 1), type = "o")
+#instead plotting without stdev^2 stuff, since it matches workbook's graph
+plot(x$importance[2,], xlab = "Principal Component", 
+    ylab = "Proportion of Variance Explained", 
+    ylim = c(0, 1), type = "o")
+```
+
+
+
+
+
+
+
+
+Combining Methods: k-means clustering on PCA results
+
+PCA de-correlates the variables, so it may improve other modeling techniques, such as clustering.
+
+
+Prompt: Using the minimum number of principal components required to describe at least 90% of the
+variability in the data, create a hierarchical clustering model with the linkage
+method="ward.D2". We use Ward's criterion here because it is based on multidimensional variance
+like principal components analysis. Assign the results to wisc.pr.hclust.
+
+
+```{r}
+wisc.pr.dist <- dist(wisc.pr$x[,1:7])
+wisc.pr.hclust <- hclust(wisc.pr.dist, method = "ward.D2")
+```
+
+
+```{r}
+grps <- cutree(wisc.pr.hclust, k=2)
+table(grps)
+diagnosis <- wisc.df$diagnosis
+table(grps, diagnosis)
+```
+
+
+```{r}
+plot(wisc.pr$x[,1:2], col=grps)
+plot(wisc.pr$x[,1:2], col=diagnosis)
+```
+
+```{r}
+g <- as.factor(grps)
+levels(g)
+g <- relevel(g,2)
+levels(g)
+# Plot using our re-ordered factor 
+plot(wisc.pr$x[,1:2], col=g)
+```
+
+
+```{r}
+## Use the distance along the first 7 PCs for clustering i.e. wisc.pr$x[, 1:7]
+wisc.pr.hclust <- hclust(dist(wisc.pr$x[, 1:7]), method="ward.D2")
+wisc.pr.hclust.clusters <- cutree(wisc.pr.hclust, k=2)
+```
+
+Using table(), compare the results from your new hierarchical clustering model with the actual diagnoses.
+```{r}
+# Compare to actual diagnoses
+table(wisc.pr.hclust.clusters, diagnosis)
+```
+
+
+
+Didn't finish; stopped toward the end of step 5 at:
+https://bioboot.github.io/bggn213_F19/class-material/lab-9-bggn213-WEBX.html
+
+
+
+
