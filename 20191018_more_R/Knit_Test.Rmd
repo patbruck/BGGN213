@@ -61,11 +61,27 @@ plotb3(s1.b, sse=s1.chainA, typ="l", ylab="Bfactor")
 
 
 
+
+
+HOMEWORK Q6:
+
 Try to make a function to get streamline this analysis:
 ```{r}
-condense <- function(x){
 
+# Creating condense(), a program to read, trim, and plot the B-factor for each residue of a
+# protein of interest.
+
+condense <- function(x){
+  A <- read.pdb(x)
+  B <- trim.pdb(A, chain = "A", elety = "CA")
+  C <- B$atom$b
+  plotb3(C, sse = B, typ = "l", ylab = "Bfactor")
+  
 }
+
+# Outputs a plot showing the B-factor for each residue of the protein.
+
+# Run as condense("protein-of-interest-from-pdb")
 condense("4AKE")
 ```
 

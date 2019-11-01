@@ -1,0 +1,225 @@
+---
+title: "Transcriptomics & RNAseq Analysis"
+author: "Patrick Bruck"
+date: "11/13/2019"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+# NOTE that THIS IS NOT HOW TO ANALYZE DE IN RNASEQ - IT IS ONLY FOR DEMONSTRATION
+
+
+## Setup Bioconductor DESeq2
+
+```{r eval=FALSE}
+install.packages("BiocManager")
+BiocManager::install()
+# For this class, we also need DESeq2:
+BiocManager::install("DESeq2")
+```
+
+
+```{r}
+read.csv("airway_metadata.csv")
+read.csv("airway_scaledcounts.csv")
+counts <- read.csv("airway_scaledcounts.csv", stringsAsFactors = FALSE)
+metadata <-  read.csv("airway_metadata.csv", stringsAsFactors = FALSE)
+```
+
+Lets check it out:
+```{r}
+head(counts)
+head(metadata)
+```
+
+
+
+## Analysis: compare the control to the drug treated
+
+First, we need to access the columns of our countData that are control and then find their mean
+
+```{r}
+metadata$dex=="control"
+control.id <- metadata[ metadata$dex=="control", ]$id        # gives rows in metadata that match "control"
+control.id
+head(counts[ , control.id])       # gives the counts from columns matching the control.id names
+```
+
+Now, we can just get the mean of these control experiments per gene (row)
+```{r}
+control.mean <- rowSums(counts[ , control.id]) / length(control.id)
+names(control.mean) <- counts$ensgene
+control.mean
+```
+
+
+Now, applying the same to get the means of the treated samples
+```{r}
+metadata$dex=="treated"
+treated.id <- metadata[ metadata$dex=="treated", ]$id        # gives rows in metadata that match "control"
+treated.id
+head(counts[ , treated.id])       # gives the counts from columns matching the control.id names
+
+treated.mean <- rowSums(counts[ , treated.id]) / length(treated.id)
+names(treated.mean) <- counts$ensgene
+treated.mean
+```
+
+
+Now, let's store them together for bookkeeping:
+```{r}
+meancounts <- data.frame(control.mean, treated.mean)
+```
+
+
+
+Let's plot control vs. treated just to look. Genes with no effect will fall on a straight line; genes that are affected will lie apart from this line
+```{r}
+plot(meancounts)
+# Should have 30,000 points, but most are clustered in the bottom due to low expression. Log scale is better
+
+plot(meancounts, log = "xy")
+```
+
+
+
+We look for outliers by calculating log2 fold change between treated & control
+```{r}
+meancounts$log2fc <- log2(meancounts[ , "treated.mean"] / meancounts[ , "control.mean"])
+head(meancounts)
+```
+
+
+NaN is returned when you do 0/0. -Inf (negative infinity) is returned when you try to take the log of 0. We want to exclude these both.
+```{r}
+zero.vals <- which(meancounts[,1:2]==0, arr.ind=TRUE)
+
+to.rm <- unique(zero.vals[,1])
+mycounts <- meancounts[-to.rm,]
+head(mycounts)
+```
+
+ 
+Test for finding zero entries to make sure the above worked:
+```{r}
+# a fabricated example:
+x <- data.frame(happy=c(115,0,30,0), sad=c(0,62,85,9))
+x==0
+which(x==0)
+which(x==0, arr.ind=TRUE)       # arr.ind=TRUE returns the row and column position of 0 values
+indeces <- unique(which(x==0, arr.ind=TRUE)[, 1] )    #creates a vector of rows that have 0's
+x[-indeces,]                       # filters out rows with 0's from x
+```
+
+
+Now, apply that idea to filter out 0-value genes in our data set
+# NOTE that THIS IS NOT HOW TO ANALYZE DE IN RNASEQ - IT IS ONLY FOR DEMONSTRATION
+```{r}
+zero.vals <- which(meancounts[,1:2]==0, arr.ind=TRUE)
+
+to.rm <- unique(zero.vals[,1])
+mycounts <- meancounts[-to.rm,]
+head(mycounts)
+```
+
+
+A common threshold used for calling something differentially expressed is a log2(FoldChange) of greater than 2 or less than -2. Let’s filter the dataset both ways to see how many genes are up or down-regulated.
+```{r}
+up.ind <- mycounts$log2fc > 2
+down.ind <- mycounts$log2fc < (-2)
+sum(up.ind)                                 # returns # of TRUE's (upregulated)
+sum(down.ind)                               # returns # of TRUE's (downregulated)
+```
+
+
+
+Now, we have our list of DE genes, but they're listed with ENSG ID's - not very useful.
+Let's use a Bioconductor package to convert them to common gene names
+# Annotating Gene ID's to Gene Names
+#This is done in R console as opposed to the Rmd, so it doesn't repeat each time the code is run:
+# BiocManager::install("AnnotationDbi")
+# BiocManager::install("org.Hs.eg.db")
+This is the organism annotation package ("org") for Homo sapiens ("Hs"), organized as an AnnotationDbi database package ("db"), using Entrez Gene IDs ("eg") as primary key. To get a list of all available key types, use:
+# columns(org.Hs.eg.db)
+
+
+
+```{r}
+library(AnnotationDbi)
+library(org.Hs.eg.db)
+columns(org.Hs.eg.db)         # shows which database namings are available. We have Ensemble (ENSG) and we                               want to go to Symbol (common gene name abbreviations)
+```
+
+
+
+Adding a column to state gene symbols:
+```{r}
+mycounts$symbol <- mapIds(org.Hs.eg.db,
+                     keys=row.names(mycounts), # Our genenames
+                     keytype="ENSEMBL",        # The format of our genenames
+                     column="SYMBOL",          # The new format we want to add
+                     multiVals="first")
+head(mycounts)
+```
+
+
+
+
+Now, we haven't accounted for variability at all; we've only taken means. We have also omitted any gene that had 0 expression in either control or treated samples, which is probably not ideal, although according to Barry, DESeq also does this since the false positive rate would be too high otherwise due to running so many hypotheses tests.
+
+Thus, we'll never do it this way. We'll use DESeq2 to do these analyses
+
+
+
+# DESeq2 Analysis
+
+```{r}
+library(DESeq2)
+citation("DESeq2")
+```
+
+Setup our object for DESeq analysis
+```{r}
+dds <- DESeqDataSetFromMatrix(countData=counts, 
+                              colData=metadata, 
+                              design=~dex, 
+                              tidy=TRUE)
+dds
+```
+
+Run DESeq & store it back in dds
+```{r}
+dds <- DESeq(dds)
+dds
+```
+
+Making a volcano plot
+```{r}
+res <- results(dds)
+res
+
+plot(res$log2FoldChange, res$padj)
+# This isn't really what we want - includes all Padj values
+
+# How about this:
+plot( res$log2FoldChange,  -log(res$padj), 
+      xlab="Log2(FoldChange)",
+      ylab="-Log(P-value)")
+
+# Now, let's color it
+mycols <- rep("gray", length(res$padj))
+mycols[ abs(res$log2FoldChange) > 2 ] = "blue"
+plot( res$log2FoldChange,  -log(res$padj), 
+      xlab="Log2(FoldChange)",
+      ylab="-Log(P-value)",
+      col = mycols )
+
+```
+

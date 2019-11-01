@@ -1,0 +1,37 @@
+---
+title: "20191108_class12_structral-bioinformatics"
+author: "Patrick Bruck"
+date: "11/8/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Prepare protein structure for docking
+
+We want to download the 1HSG protein's PDB structure and then produce a "protein-only" (w/out the drug that's bound to the protein in the structure file) and "ligand-only" new separate PDB files.
+
+
+```{r}
+library(bio3d)
+
+get.pdb("1hsg")
+```
+
+
+Prodcue a "1hsg_protein.pdb" and "1sg_ligand.pdb" file
+
+```{r}
+pdb <- read.pdb("1hsg.pdb")
+pdb
+
+ligand <- atom.select(pdb, "ligand", value=TRUE)
+write.pdb(ligand, file="1hsg_ligand.pdb")
+
+protein <- atom.select(pdb, "protein", value=TRUE)
+write.pdb(protein, file="1hsg_protein.pdb")
+```
+
